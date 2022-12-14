@@ -27,15 +27,27 @@ cities['lng'] = cities['lng'].apply(lambda y:y.replace(',','.')).astype(float)
 cities = spark.createDataFrame(cities) \
                 .withColumnRenamed('lat', 'lat1') \
                 .withColumnRenamed('lng', 'lng1') \
-                .cache()
 
 
-events = spark.read.parquet(*input_event_paths('2022-05-21',20)) \
-                        .withColumnRenamed('lat', 'lat2') \
-                        .withColumnRenamed('lon', 'lng2') \
-                        .cache()
 
-events.printSchema()                        
+events = spark.read.parquet(*input_event_paths('2022-05-21',5)) \
+                    .withColumnRenamed('lat', 'lat2') \
+                    .withColumnRenamed('lon', 'lng2') \
+                    .withColumn('user_id',
+                        F.when(F.col('event_type') == 'reaction',
+                               F.col('event.reaction_from')).\
+                        when(F.col('event_type') == 'subscription',
+                             F.col('event.user')).\
+                        otherwise(F.col('event.message_from'))                                  
+                    )\
+                    .withColumn('ts',
+                        F.when((F.col('event_type')== 'reaction')|(F.col('event_type') == 'subscription'),
+                               F.col('event.datetime')).\
+                        when((F.col('event_type')== 'message')|(F.col('event.message_channel_to').isNotNull()),
+                             F.col('event.datetime')).\
+                        otherwise(F.col('event.message_ts')) 
+                    )\
+
 
 events_and_cities = events.join(cities)
 
@@ -62,28 +74,26 @@ events_and_cities = events_and_cities\
                         .withColumn('rank', F.rank().over(window))\
                         .where(F.col('rank') == 1) \
                         .cache()
+
 # events_and_cities.show()
 
-window = Window().partitionBy('event.message_from').orderBy(F.desc('event.message_ts'))
+window = Window().partitionBy('user_id').orderBy(F.desc('ts'))
 
 act_city = events_and_cities\
-                .where(F.col('event_type') == 'message')\
                 .select(
-                    'event.message_from',
+                    'user_id',
                     F.first('city',True).over(window).alias('act_city')
                 )\
                 .distinct()
 
 # act_city.show()
 
-window = Window().partitionBy('message_from').orderBy('date')
-window_2 = Window().partitionBy('message_from').orderBy(F.desc('num_visit_full'))   
+window = Window().partitionBy('user_id').orderBy('date')
 
 visits = events_and_cities\
-                .where(F.col('event_type') == 'message')\
                 .select(
-                    'event.message_from',
-                    F.to_date('event.message_ts').alias('date'),
+                    'user_id',
+                    F.to_date('ts').alias('date'),
                     'city'                   
                 ) \
                 .distinct() \
@@ -95,33 +105,35 @@ visits = events_and_cities\
                         F.monotonically_increasing_id()
                     )
                 ) \
-                .withColumn('num_visit_full', F.max('num_visit').over(window))
+                .withColumn('num_visit_full', F.max('num_visit').over(window))\
+                .cache()
 
+window = Window().partitionBy('user_id').orderBy(F.desc('num_visit_full'))   
 
 home_city = visits\
-                .groupBy('message_from', 'city', 'num_visit_full').count() \
-                .where(F.col('count') > 6) \
+                .groupBy('user_id', 'city', 'num_visit_full').count() \
+                .where(F.col('count') > 3) \
                 .select(
-                    'message_from',
-                    F.first('city').over(window_2).alias('home_city')
+                    'user_id',
+                    F.first('city').over(window).alias('home_city')
                 )
                 
-# home_city.show(50)
+home_city.show()
 
 travel_count = visits\
-                .groupBy('message_from')\
-                .agg(F.count_distinct('num_visit_full')).alias('travel_count')
+                .groupBy('user_id')\
+                .agg(F.count_distinct('num_visit_full').alias('travel_count'))
 
 travel_count.show()
 
 travel_array = visits\
                 .select(
-                    'message_from',
+                    'user_id',
                     'city',
                     'num_visit_full'
                 )\
                 .distinct()\
-                .groupBy('message_from')\
+                .groupBy('user_id')\
                 .agg(F.collect_list('city')).alias('travel_array')
 
 travel_array.show()
