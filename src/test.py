@@ -7,17 +7,6 @@ import pandas as pd
 import datetime as dt
 
 
-class numerator:
-    def __init__(self):
-        self.value = 0
-    def next_val(self):
-        self.value += 1
-        return self.value
-    def cur_val(self):
-        return self.value
-    
-n = numerator()  
-
 base_url = 'hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020'
 events_path = '/user/master/data/geo/events'
 
@@ -41,12 +30,12 @@ cities = spark.createDataFrame(cities) \
                 .cache()
 
 
-events = spark.read.parquet(*input_event_paths('2022-06-21',10)) \
+events = spark.read.parquet(*input_event_paths('2022-05-21',20)) \
                         .withColumnRenamed('lat', 'lat2') \
                         .withColumnRenamed('lon', 'lng2') \
                         .cache()
 
-events.printSchema()                        
+# events.printSchema()                        
 
 events_and_cities = events.join(cities)
 
@@ -73,7 +62,7 @@ events_and_cities = events_and_cities\
                         .withColumn('rank', F.rank().over(window))\
                         .where(F.col('rank') == 1) \
                         .cache()
-events_and_cities.show()
+# events_and_cities.show()
 
 window = Window().partitionBy('event.message_from').orderBy(F.desc('event.message_ts'))
 
@@ -82,13 +71,13 @@ act_city = events_and_cities\
                 .select(
                     'event.message_from',
                     F.first('city',True).over(window).alias('act_city')
-                )
+                )\
+                .distinct()
 
-act_city.show()
+# act_city.show()
 
 window = Window().partitionBy('message_from').orderBy('date')
-window_2 = Window().partitionBy('message_from').orderBy('date')
-              
+window_2 = Window().partitionBy('message_from').orderBy(F.desc('num_visit_full'))   
 
 home_city = events_and_cities\
                 .where(F.col('event_type') == 'message')\
@@ -100,13 +89,21 @@ home_city = events_and_cities\
                 .distinct() \
                 .withColumn('prev_city', F.lag('city').over(window))\
                 .withColumn(
-                    'visit', 
+                    'num_visit', 
                     F.when(
                         (F.col('city')!=F.col('prev_city'))|(F.col('prev_city').isNull()),
                         F.monotonically_increasing_id()
                     )
                 ) \
-                .withColumn('visit_2', F.max('visit').over(window_2)) \
-                .groupBy('message_from', 'city', 'visit_2').count() \
+                .withColumn('num_visit_full', F.max('num_visit').over(window)) \
+                .groupBy('message_from', 'city', 'num_visit_full').count() \
+                .where(F.col('count') > 6) \
+                .select(
+                    'message_from',
+                    F.first('city').over(window_2).alias('home_city')
+                )
                 
-                
+# home_city.show(50)
+
+result = act_city.join(home_city, 'message_from', 'left').orderBy(F.desc('home_city'))
+result.show(100)
