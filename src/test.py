@@ -35,7 +35,7 @@ events = spark.read.parquet(*input_event_paths('2022-05-21',20)) \
                         .withColumnRenamed('lon', 'lng2') \
                         .cache()
 
-# events.printSchema()                        
+events.printSchema()                        
 
 events_and_cities = events.join(cities)
 
@@ -79,7 +79,7 @@ act_city = events_and_cities\
 window = Window().partitionBy('message_from').orderBy('date')
 window_2 = Window().partitionBy('message_from').orderBy(F.desc('num_visit_full'))   
 
-home_city = events_and_cities\
+visits = events_and_cities\
                 .where(F.col('event_type') == 'message')\
                 .select(
                     'event.message_from',
@@ -95,7 +95,10 @@ home_city = events_and_cities\
                         F.monotonically_increasing_id()
                     )
                 ) \
-                .withColumn('num_visit_full', F.max('num_visit').over(window)) \
+                .withColumn('num_visit_full', F.max('num_visit').over(window))
+
+
+home_city = visits\
                 .groupBy('message_from', 'city', 'num_visit_full').count() \
                 .where(F.col('count') > 6) \
                 .select(
@@ -105,5 +108,23 @@ home_city = events_and_cities\
                 
 # home_city.show(50)
 
-result = act_city.join(home_city, 'message_from', 'left').orderBy(F.desc('home_city'))
-result.show(100)
+travel_count = visits\
+                .groupBy('message_from')\
+                .agg(F.count_distinct('num_visit_full')).alias('travel_count')
+
+travel_count.show()
+
+travel_array = visits\
+                .select(
+                    'message_from',
+                    'city',
+                    'num_visit_full'
+                )\
+                .distinct()\
+                .groupBy('message_from')\
+                .agg(F.collect_list('city')).alias('travel_array')
+
+travel_array.show()
+
+# result = act_city.join(home_city, 'message_from', 'left').orderBy(F.desc('home_city'))
+# result.show(100)
