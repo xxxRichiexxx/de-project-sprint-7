@@ -140,3 +140,27 @@ travel_array.show()
 
 # result = act_city.join(home_city, 'message_from', 'left').orderBy(F.desc('home_city'))
 # result.show(100)
+
+w = Window
+
+zones = events_and_cities\
+            .select(
+                F.date_trunc('month', F.col('ts')).alias('month'),            
+                F.date_trunc('week', F.col('ts')).alias('week'),
+                'id'.alias('zone_id'),
+                F.count(F.when(F.col('event_type') == 'message', 1))\
+                    .over(w().partitionBy('week')).alias('week_message'),
+                F.count(F.when(F.col('event_type') == 'reaction', 1))\
+                    .over(w().partitionBy('week')).alias('week_reaction'),
+                F.count(F.when(F.col('event_type') == 'subscription', 1))\
+                    .over(w().partitionBy('week')).alias('week_subscription'),
+                # week_user
+                F.count(F.when(F.col('event_type') == 'message', 1))\
+                    .over(w().partitionBy('month')).alias('month_message'),
+                F.count(F.when(F.col('event_type') == 'reaction', 1))\
+                    .over(w().partitionBy('month')).alias('month_reaction'),
+                F.count(F.when(F.col('event_type') == 'subscription', 1))\
+                    .over(w().partitionBy('month')).alias('month_subscription'),
+                # month_user
+            )\
+            .distinct()
