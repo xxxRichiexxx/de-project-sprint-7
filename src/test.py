@@ -43,11 +43,10 @@ events = spark.read.parquet(*input_event_paths('2022-05-21',5)) \
                     .withColumn('ts',
                         F.when((F.col('event_type')== 'reaction')|(F.col('event_type') == 'subscription'),
                                F.col('event.datetime')).\
-                        when((F.col('event_type')== 'message')|(F.col('event.message_channel_to').isNotNull()),
+                        when((F.col('event_type')== 'message')&(F.col('event.message_channel_to').isNotNull()),
                              F.col('event.datetime')).\
                         otherwise(F.col('event.message_ts')) 
-                    )\
-
+                    )
 
 events_and_cities = events.join(cities)
 
@@ -77,90 +76,109 @@ events_and_cities = events_and_cities\
 
 # events_and_cities.show()
 
-window = Window().partitionBy('user_id').orderBy(F.desc('ts'))
+# window = Window().partitionBy('user_id').orderBy(F.desc('ts'))
 
-act_city = events_and_cities\
-                .select(
-                    'user_id',
-                    F.first('city',True).over(window).alias('act_city')
-                )\
-                .distinct()
+# act_city = events_and_cities\
+#                 .select(
+#                     'user_id',
+#                     F.first('city',True).over(window).alias('act_city')
+#                 )\
+#                 .distinct()
 
-# act_city.show()
+# # act_city.show()
 
-window = Window().partitionBy('user_id').orderBy('date')
+# window = Window().partitionBy('user_id').orderBy('date')
 
-visits = events_and_cities\
-                .select(
-                    'user_id',
-                    F.to_date('ts').alias('date'),
-                    'city'                   
-                ) \
-                .distinct() \
-                .withColumn('prev_city', F.lag('city').over(window))\
-                .withColumn(
-                    'num_visit', 
-                    F.when(
-                        (F.col('city')!=F.col('prev_city'))|(F.col('prev_city').isNull()),
-                        F.monotonically_increasing_id()
-                    )
-                ) \
-                .withColumn('num_visit_full', F.max('num_visit').over(window))\
-                .cache()
+# visits = events_and_cities\
+#                 .select(
+#                     'user_id',
+#                     F.to_date('ts').alias('date'),
+#                     'city'                   
+#                 ) \
+#                 .distinct() \
+#                 .withColumn('prev_city', F.lag('city').over(window))\
+#                 .withColumn(
+#                     'num_visit', 
+#                     F.when(
+#                         (F.col('city')!=F.col('prev_city'))|(F.col('prev_city').isNull()),
+#                         F.monotonically_increasing_id()
+#                     )
+#                 ) \
+#                 .withColumn('num_visit_full', F.max('num_visit').over(window))\
+#                 .cache()
 
-window = Window().partitionBy('user_id').orderBy(F.desc('num_visit_full'))   
+# window = Window().partitionBy('user_id').orderBy(F.desc('num_visit_full'))   
 
-home_city = visits\
-                .groupBy('user_id', 'city', 'num_visit_full').count() \
-                .where(F.col('count') > 3) \
-                .select(
-                    'user_id',
-                    F.first('city').over(window).alias('home_city')
-                )
+# home_city = visits\
+#                 .groupBy('user_id', 'city', 'num_visit_full').count() \
+#                 .where(F.col('count') > 3) \
+#                 .select(
+#                     'user_id',
+#                     F.first('city').over(window).alias('home_city')
+#                 )
                 
-home_city.show()
+# home_city.show()
 
-travel_count = visits\
-                .groupBy('user_id')\
-                .agg(F.count_distinct('num_visit_full').alias('travel_count'))
+# travel_count = visits\
+#                 .groupBy('user_id')\
+#                 .agg(F.count_distinct('num_visit_full').alias('travel_count'))
 
-travel_count.show()
+# travel_count.show()
 
-travel_array = visits\
-                .select(
-                    'user_id',
-                    'city',
-                    'num_visit_full'
-                )\
-                .distinct()\
-                .groupBy('user_id')\
-                .agg(F.collect_list('city')).alias('travel_array')
+# travel_array = visits\
+#                 .select(
+#                     'user_id',
+#                     'city',
+#                     'num_visit_full'
+#                 )\
+#                 .distinct()\
+#                 .groupBy('user_id')\
+#                 .agg(F.collect_list('city')).alias('travel_array')
 
-travel_array.show()
+# travel_array.show()
 
 # result = act_city.join(home_city, 'message_from', 'left').orderBy(F.desc('home_city'))
 # result.show(100)
 
+window = Window().partitionBy('user_id').orderBy(F.desc('ts'))
+
+local_time = events_and_cities\
+                .withColumn('last_city', F.first('city').over(window))\
+                .select(
+                'user_id',
+                F.from_utc_timestamp(F.col("ts"),F.concat(F.lit("Australia/"),F.col('city')))
+                )\
+                .distinct()
+
+local_time.show()
+
 w = Window
 
 zones = events_and_cities\
+            .withColumn('week', F.date_trunc('week', F.col('ts')))\
+            .withColumn('month', F.date_trunc('month', F.col('ts')))\
+            .withColumn('action_num', F.rank().over(w().partitionBy('user_id', 'event_type').orderBy('ts')))\
             .select(
-                F.date_trunc('month', F.col('ts')).alias('month'),            
-                F.date_trunc('week', F.col('ts')).alias('week'),
-                'id'.alias('zone_id'),
+                'week',
+                'month',
+                F.col('id').alias('zone_id'),
                 F.count(F.when(F.col('event_type') == 'message', 1))\
-                    .over(w().partitionBy('week')).alias('week_message'),
+                    .over(w().partitionBy('week', 'id')).alias('week_message'),
                 F.count(F.when(F.col('event_type') == 'reaction', 1))\
-                    .over(w().partitionBy('week')).alias('week_reaction'),
+                    .over(w().partitionBy('week', 'id')).alias('week_reaction'),
                 F.count(F.when(F.col('event_type') == 'subscription', 1))\
-                    .over(w().partitionBy('week')).alias('week_subscription'),
-                # week_user
+                    .over(w().partitionBy('week', 'id')).alias('week_subscription'),
+                F.count(F.when((F.col('event_type') == 'message')&(F.col('action_num')==1),1))\
+                    .over(w().partitionBy('week', 'id')).alias('week_user'),
                 F.count(F.when(F.col('event_type') == 'message', 1))\
-                    .over(w().partitionBy('month')).alias('month_message'),
+                    .over(w().partitionBy('month', 'id')).alias('month_message'),
                 F.count(F.when(F.col('event_type') == 'reaction', 1))\
-                    .over(w().partitionBy('month')).alias('month_reaction'),
+                    .over(w().partitionBy('month', 'id')).alias('month_reaction'),
                 F.count(F.when(F.col('event_type') == 'subscription', 1))\
-                    .over(w().partitionBy('month')).alias('month_subscription'),
-                # month_user
+                    .over(w().partitionBy('month', 'id')).alias('month_subscription'),
+                F.count(F.when((F.col('event_type') == 'message')&(F.col('action_num')==1),1))\
+                    .over(w().partitionBy('month', 'id')).alias('month_user')
             )\
             .distinct()
+                          
+zones.show()
