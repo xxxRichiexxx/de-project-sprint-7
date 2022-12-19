@@ -1,8 +1,10 @@
 import datetime as dt
 import sys
 
-from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
+from pyspark.sql.window import Window
+from pyspark import SparkContext, SparkConf
+from pyspark.sql import SQLContext
 
 
 def get_events(spark, date, depth, hdfs_url, input_dir):
@@ -18,10 +20,11 @@ def get_events(spark, date, depth, hdfs_url, input_dir):
                 (F.col('event_type')=='subscription')| \
                 (F.col('event_type')=='message')    
             ) \
+            .sample(0.001) \
             .cache()
 
 
-def get_mart_3(events, spark, hdfs_url):
+def get_mart_3(events):
     """
     Получение витрины 3.
     """    
@@ -41,9 +44,15 @@ def get_mart_3(events, spark, hdfs_url):
                     )\
                     .select('user_left', 'user_right')\
                     .distinct()
-                        
-    contacts = events\
-                .where(F.col('event_type')=='message')\
+    
+    messages = events \
+                .where(
+                    (F.col('event_type')=='message')|
+                    (F.col('event.message_to').isNotNull())
+                ) \
+                .cache()                    
+    
+    contacts =  messages\
                 .select('event.message_from', 'event.message_to')\
                 .distinct()
 
@@ -56,46 +65,78 @@ def get_mart_3(events, spark, hdfs_url):
                             &(users_pair.user_left == contacts.message_to))],
                         'leftanti'
                     )
-
-    users_with_home_city = spark \
-                            .read \
-                            .parquet(hdfs_url + '/user/andreydzr/data/analytics/mart_1')                      
-    
+                    
+    window = Window().partitionBy('message_from').orderBy(F.desc('message_ts'))
+    user_coordinates = messages \
+                        .select(
+                            'event.message_from',
+                            'lat',
+                            'lon',
+                            'event.message_ts'
+                        ) \
+                        .withColumn(
+                            'act_lat',
+                            F.first('lat',True).over(window)
+                        ) \
+                        .withColumn(
+                            'act_lon',
+                            F.first('lon',True).over(window)
+                        ) \
+                        .withColumn(
+                            'ts',
+                            F.first('message_ts',True).over(window)
+                        ) \
+                        .select(
+                            'message_from',
+                            'act_lat',
+                            'act_lon',
+                            'ts'
+                        ) \
+                        .distinct()
+                        
     return users_pair \
-                    .join(
-                        users_with_home_city,
-                        users_pair.user_left == users_with_home_city.user_id
-                    ) \
-                    .withColumnRenamed('home_city', 'user_left_home_city') \
-                    .withColumnRenamed('user_id', 'lu') \
-                    .join(
-                        users_with_home_city,
-                        users_pair.user_right == users_with_home_city.user_id
-                    ) \
-                    .withColumnRenamed('home_city', 'user_right_home_city') \
-                    .withColumnRenamed('user_id', 'ru') \
-                    .where(F.col('user_left_home_city') == F.col('user_right_home_city')) \
-                    .select(
-                        'user_left',
-                        'user_right',
-                        F.current_timestamp().alias('processed_dttm'),
-                        F.col('user_left_home_city').alias('city'),
-                        F.from_utc_timestamp(F.current_timestamp(), 'Australia/Sydney').alias('local_time')
-                    )
+            .join(user_coordinates, users_pair.user_left == user_coordinates.message_from, 'left') \
+            .withColumnRenamed('message_from', 'lu') \
+            .withColumnRenamed('act_lat', 'lat1') \
+            .withColumnRenamed('act_lon', 'lng1') \
+            .join(user_coordinates, users_pair.user_right == user_coordinates.message_from, 'left') \
+            .withColumnRenamed('message_from', 'ru') \
+            .withColumnRenamed('act_lat', 'lat2') \
+            .withColumnRenamed('act_lon', 'lng2') \
+            .withColumn(
+                'distance',
+                        F.lit(2)*F.lit(6371)*F.asin(
+                                F.sqrt(
+                                    F.pow(
+                                        F.sin(
+                                            (F.col('lat2') - F.col('lat1'))/F.lit(2)
+                                        ), 2)\
+                                    + F.cos('lat1')\
+                                    * F.cos('lat2')\
+                                    * F.pow(
+                                        F.sin(
+                                            (F.col('lng2')-F.col('lng1'))/F.lit(2)
+                                        ) ,2)
+                                )
+                        )
+            )\
+            .select(
+                'user_left',
+                'user_right',
+                'distance',
+                F.current_timestamp().alias('processed_dttm'),
+            )
+        #     .where(F.col('distance') < 10) \
+        #   F.from_utc_timestamp('max(ts)', 'Australia/Sydney').alias('local_time')
 
 
 def main():
 
     hdfs_url = 'hdfs://rc1a-dataproc-m-dg5lgqqm7jju58f9.mdb.yandexcloud.net:8020'
   
-    spark = SparkSession.builder \
-                .config("spark.executor.memory", "8g") \
-                .config("spark.executor.cores", 2) \
-                .config("spark.driver.memory", "8g") \
-                .config("spark.driver.cores", 2) \
-                .appName('geoProject') \
-                .master('local') \
-                .getOrCreate()
+    conf = SparkConf().setAppName("mart3_Andreydzr")
+    sc = SparkContext(conf=conf)
+    spark = SQLContext(sc)
 
     date = sys.argv[1]
     depth = sys.argv[2]
@@ -103,7 +144,7 @@ def main():
     events = get_events(spark, date, depth, hdfs_url, events_input_path)
 
     mart_3_dir = sys.argv[4]
-    get_mart_3(events, spark, hdfs_url) \
+    get_mart_3(events) \
         .write \
         .mode('overwrite') \
         .parquet(hdfs_url + mart_3_dir) \
