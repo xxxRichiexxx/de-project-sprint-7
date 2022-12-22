@@ -31,6 +31,8 @@ def get_events_and_cities(events, cities):
                     .where(F.col('rank') == 1)\
                     .persist(StorageLevel.MEMORY_AND_DISK_ONLY)
 
+withColumn('dif', F.acos(F.sin(F.col('lat_double_fin'))F.sin(F.col('lat_to')) + F.cos(F.col('lat_double_fin'))F.cos(F.col('lat_to'))F.cos(F.col('lng_double_fin')-F.col('lng_to')))F.lit(6371) )\
+.filter(F.col('dif')<=1)
 
 def get_act_city(events_and_cities):
     

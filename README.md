@@ -76,44 +76,12 @@ spark-submit --master yarn --deploy-mode cluster /lessons/dags/cities.py https:/
 spark-submit /lessons/dags/cities.py https://code.s3.yandex.net/data-analyst/data_engeneer/geo.csv /user/andreydzr/data/cities
 spark-submit /lessons/dags/mart_1.py
 
-spark-submit /lessons/dags/mart_1.py https://code.s3.yandex.net/data-analyst/data_engeneer/geo.csv ; 2022-05-21 3 /user/master/data/geo/events /user/andreydzr/test/mart_1
+/usr/lib/spark/bin/spark-submit --master yarn --deploy-mode cluster /lessons/dags/mart_1.py https://code.s3.yandex.net/data-analyst/data_engeneer/geo.csv 2022-05-21 3 /user/master/data/geo/events /user/andreydzr/test/mart_1
 
 spark-submit /lessons/dags/mart_3.py 2022-05-21 1 /user/master/data/geo/events /user/andreydzr/test/mart_3
 
 /usr/lib/spark/bin/spark-submit --master yarn --deploy-mode cluster /lessons/dags/mart_3.py 2022-05-21 1 /user/master/data/geo/events /user/andreydzr/test/mart_3
 
 
-    # return users_pair \
-    #         .join(user_coordinates, users_pair.user_left == user_coordinates.message_from, 'left') \
-    #         .withColumnRenamed('message_from', 'lu') \
-    #         .withColumnRenamed('act_lat', 'lat1') \
-    #         .withColumnRenamed('act_lon', 'lng1') \
-    #         .join(user_coordinates, users_pair.user_right == user_coordinates.message_from, 'left') \
-    #         .withColumnRenamed('message_from', 'ru') \
-    #         .withColumnRenamed('act_lat', 'lat2') \
-    #         .withColumnRenamed('act_lon', 'lng2') \
-    #         .withColumn(
-    #             'distance',
-    #                     F.lit(2)*F.lit(6371)*F.asin(
-    #                             F.sqrt(
-    #                                 F.pow(
-    #                                     F.sin(
-    #                                         (F.col('lat2') - F.col('lat1'))/F.lit(2)
-    #                                     ), 2)\
-    #                                 + F.cos('lat1')\
-    #                                 * F.cos('lat2')\
-    #                                 * F.pow(
-    #                                     F.sin(
-    #                                         (F.col('lng2')-F.col('lng1'))/F.lit(2)
-    #                                     ) ,2)
-    #                             )
-    #                     )
-    #         )\
-    #         .select(
-    #             'user_left',
-    #             'user_right',
-    #             'distance',
-    #             F.current_timestamp().alias('processed_dttm'),
-    #         )
-            # .where(F.col('distance') < 10) \
-#           F.from_utc_timestamp('max(ts)', 'Australia/Sydney').alias('local_time')
+/usr/lib/spark/bin/spark-submit --master yarn --deploy-mode cluster /lessons/dags/events_and_cities.py https://code.s3.yandex.net/data-analyst/data_engeneer/geo.csv 2022-06-21 30 /user/master/data/geo/events /user/andreydzr/data/geo_events
+
