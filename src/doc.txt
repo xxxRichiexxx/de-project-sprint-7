@@ -1,7 +1,0 @@
-+------------+
-|  event_type|
-+------------+
-|    reaction|reaction_from datetime
-|subscription|user datetime
-|     message|message_from datetime message_ts
-+------------+
