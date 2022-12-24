@@ -162,21 +162,7 @@ local_time посчитан для всех пользователей по ча
 
 Проверяем результат:
 
-        spark.read.parquet(hdfs_url + '/user/andreydzr/test/mart_2') \
-                .select(
-                    F.to_date('month').alias('month'),
-                    F.to_date('week').alias('week'),
-                    'zone_id',
-                    'week_message',
-                    'week_reaction',
-                    'week_subscription',
-                    'week_user',
-                    'month_message',
-                    'month_reaction',
-                    'month_subscription',
-                    'month_user',                 
-                ) \
-                .orderBy('zone_id','month').show(30)
+        spark.read.parquet(hdfs_url + '/user/andreydzr/test/mart_2').orderBy('zone_id','month').show(30)
 
 Витрина 2:
 

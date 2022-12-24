@@ -134,8 +134,8 @@ def get_mart_2(all_events):
             .withColumn('month', F.date_trunc('month', F.col('ts'))) \
             .withColumn('action_num', F.rank().over(w().partitionBy('user_id', 'event_type').orderBy('ts')))\
             .select(
-                'week',
                 'month',
+                'week',
                 'zone_id',
                 F.count(F.when(F.col('event_type') == 'message', 1)) \
                     .over(w().partitionBy('week', 'zone_id')).alias('week_message'),
