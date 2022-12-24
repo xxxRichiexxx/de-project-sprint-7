@@ -13,8 +13,12 @@ def get_cities(url, sep, spark):
     Получение датафрейма городов Австралии с их координатами.
     """
     cities = pd.read_csv(url, sep=sep)
-    cities['lat'] = cities['lat'].apply(lambda y: y.replace(',', '.')).astype(float)
-    cities['lng'] = cities['lng'].apply(lambda y: y.replace(',', '.')).astype(float)
+    cities['lat'] = cities['lat'].apply(
+        lambda y: y.replace(',', '.')
+    ).astype('float64')
+    cities['lng'] = cities['lng'].apply(
+        lambda y: y.replace(',', '.')
+    ).astype('float64')
     return spark \
         .createDataFrame(cities) \
         .withColumn('lat1', F.col('lat')/F.lit(57.3)) \
@@ -44,6 +48,7 @@ def get_events(spark, date, depth, hdfs_url, input_dir):
                         F.col('event.datetime')) \
                     .otherwise(F.col('event.message_ts'))
                 ) \
+                .drop('lat', 'lon', 'date') \
                 .cache()
 
 

@@ -25,10 +25,10 @@ def get_cities(url, sep, spark):
     cities = pd.read_csv(url, sep=sep)
     cities['lat'] = cities['lat'].apply(
         lambda y: y.replace(',', '.')
-    ).astype(float)
+    ).astype('float64')
     cities['lng'] = cities['lng'].apply(
         lambda y: y.replace(',', '.')
-    ).astype(float)
+    ).astype('float64')
     return spark \
         .createDataFrame(cities) \
         .withColumn('lat1', F.col('lat')/F.lit(57.3)) \
@@ -51,7 +51,8 @@ def get_events(spark, date, depth, hdfs_url, input_dir):
                     F.when(F.col('event.message_channel_to').isNotNull(),
                         F.col('event.datetime')) \
                     .otherwise(F.col('event.message_ts'))
-                )
+                ) \
+                .drop('event_type', 'lat', 'lon', 'date')
 
 
 def get_events_and_cities(events, cities):
