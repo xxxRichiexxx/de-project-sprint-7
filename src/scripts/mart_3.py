@@ -1,6 +1,7 @@
 import datetime as dt
 import sys
 import pandas as pd
+from decimal import Decimal
 
 import pyspark.sql.functions as F
 from pyspark.sql.window import Window
@@ -15,10 +16,10 @@ def get_cities(url, sep, spark):
     cities = pd.read_csv(url, sep=sep)
     cities['lat'] = cities['lat'].apply(
         lambda y: y.replace(',', '.')
-    ).astype('float64')
+    ).apply(Decimal)
     cities['lng'] = cities['lng'].apply(
         lambda y: y.replace(',', '.')
-    ).astype('float64')
+    ).apply(Decimal)
     return spark \
         .createDataFrame(cities) \
         .withColumn('lat1', F.col('lat')/F.lit(57.3)) \
